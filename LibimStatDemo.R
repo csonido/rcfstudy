@@ -459,23 +459,30 @@ pushrateCol <- c(1:nrow(injectedProfiles))
 pushrateCol <- replace(pushrateCol, TRUE, 1)
 
 injectedProfiles <- cbind(injectedProfiles,pushrateCol)
+
+##RA Train set, test labels
+pamTrain <- rbind(mtrain,injectedProfiles)
+pamtrainLabels <- pamTrain[,pushRow] 
+pamtestLabels <- mxf[samp==2, (ncol(mxf))]
+
+####BADSA DEFENSE
 #Precalculate sd of ratings for each item
-sdSet <- c(1:ncol(mtrain))
-for (i in 1:ncol(mtrain)){
-  icol <-  mtrain[,i]
+sdSet <- c(1:ncol(pamTrain))
+for (i in 1:ncol(pamTrain)){
+  icol <-  pamTrain[,i]
   sdSet[i] <- sd(icol)
 }
 #1. Determine metrics for each user
-for (i in 1:nrow(mtrain)){
+for (i in 1:nrow(pamTrain)){
   iMetrics <- c(1:3) ## Generic empty vector of 3 metrics
   names(iMetrics) <- c("stddev","npd","doa") #Standard Deviation, Number of prediction differences, Degree of agreement, Average Similarity 
-  iRatings <- mtrain[i,]
+  iRatings <- pamTrain[i,]
   
   ##Standard deviation of ratings
   iMetrics["stddev"] <- sd(iRatings)
   
   ##Number of prediction differences
-  predictionWithout <- knn(train=mtrain[-i,], test=mtest, cl=mtrainLabels[-i], k=neighbors, use.all = TRUE)
+  predictionWithout <- knn(train=pamTrain[-i,], test=mtest, cl=mtrainLabels[-i], k=neighbors, use.all = TRUE)
   predictionWith <- prediction[-i]
   iNpd <- 0
   for (k in 1:length(predictionWith)){
@@ -512,4 +519,20 @@ for (i in 1:nrow(metrics)){
     detectedAttackers <- append(detectedAttackers,i)
   }
 }
+#Create post random-attack knn reccomendation model
+badsaPAMtrain <- mtrain[-detectedAttackers,]
+badsaPAMtrainLabels <- mtrainLabels[-detectedAttackers]
 
+paPrediction <- knn(train=badsaPAMtrain, test=mtest, cl=badsaPAMtrainLabels, k=neighbors, use.all = TRUE)
+paefficiencyTable<-table(paPrediction,pamtestLabels)
+pafalsePos<-paefficiencyTable[2,1]
+pafalseNeg<-paefficiencyTable[1,2]
+patruePos<-paefficiencyTable[1,1]
+patrueNeg<-paefficiencyTable[2,2]
+postRecEfficiency <- (patruePos+patrueNeg)/sum(paefficiencyTable)
+print(paste("knn Efficiency after RANDOM ATTACK WITH BADSA: ",postRecEfficiency))
+print(paste("False Positives: ",pafalsePos,". Versus: ",falsePos))
+
+randEff <- postRecEfficiency
+randVolume <- patruePos+pafalsePos
+randfalsePos <- pafalsePos/sum(paefficiencyTable)
