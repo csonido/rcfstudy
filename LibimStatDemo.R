@@ -432,7 +432,7 @@ normfalsePos <- falsePos/sum(efficiencyTable)
 
 print(paste("knn Efficiency before attack WITH BADSA: ",preRecEfficiency))
 
-nms <- nrow(detectedAttackers)##Store num of non-malicious users
+badsaNoAtkCount <- length(detectedAttackers)##Store num of non-malicious users
 ################
 ## Random Attack
 mDist <- table(mtrain)
@@ -482,7 +482,7 @@ for (i in 1:nrow(pamTrain)){
   iMetrics["stddev"] <- sd(iRatings)
   
   ##Number of prediction differences
-  predictionWithout <- knn(train=pamTrain[-i,], test=mtest, cl=mtrainLabels[-i], k=neighbors, use.all = TRUE)
+  predictionWithout <- knn(train=pamTrain[-i,], test=mtest, cl=pamtrainLabels[-i], k=neighbors, use.all = TRUE)
   predictionWith <- prediction[-i]
   iNpd <- 0
   for (k in 1:length(predictionWith)){
@@ -520,8 +520,8 @@ for (i in 1:nrow(metrics)){
   }
 }
 #Create post random-attack knn reccomendation model
-badsaPAMtrain <- mtrain[-detectedAttackers,]
-badsaPAMtrainLabels <- mtrainLabels[-detectedAttackers]
+badsaPAMtrain <- pamTrain[-detectedAttackers,]
+badsaPAMtrainLabels <- pamtrainLabels[-detectedAttackers]
 
 paPrediction <- knn(train=badsaPAMtrain, test=mtest, cl=badsaPAMtrainLabels, k=neighbors, use.all = TRUE)
 paefficiencyTable<-table(paPrediction,pamtestLabels)
@@ -536,3 +536,5 @@ print(paste("False Positives: ",pafalsePos,". Versus: ",falsePos))
 randEff <- postRecEfficiency
 randVolume <- patruePos+pafalsePos
 randfalsePos <- pafalsePos/sum(paefficiencyTable)
+
+badsaRatkCount <- length(detectedAttackers)
