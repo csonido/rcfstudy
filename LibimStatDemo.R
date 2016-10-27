@@ -357,13 +357,21 @@ barplot(falseposrates,main="False Positive %\n(Undefended System)",ylim = c(yLow
 ################ Nedji, Chitra, Zamfir (2014)################################
 ########## "BADSA" Basic algorithm for detecting shilling attackers##########
 
-## Undefended
+############
+## No Attack
   metrics <- NULL
+  #Precalculate sd of ratings for each item
+  sdSet <- c(1:ncol(mtrain))
+  for (i in 1:ncol(mtrain)){
+    icol <-  mtrain[,i]
+    sdSet[i] <- sd(icol)
+  }
   #1. Determine metrics for each user
   for (i in 1:nrow(mtrain)){
-    iMetrics <- c(1:4) ## Generic empty vector of 4 metrics
-    names(iMetrics) <- c("stddev","npd","doa","avgsim") #Standard Deviation, Number of prediction differences, Degree of agreement, Average Similarity 
+    iMetrics <- c(1:3) ## Generic empty vector of 3 metrics
+    names(iMetrics) <- c("stddev","npd","doa") #Standard Deviation, Number of prediction differences, Degree of agreement, Average Similarity 
     iRatings <- mtrain[i,]
+    
     ##Standard deviation of ratings
     iMetrics["stddev"] <- sd(iRatings)
     
@@ -378,6 +386,12 @@ barplot(falseposrates,main="False Positive %\n(Undefended System)",ylim = c(yLow
     }
     iMetrics["npd"] <- iNpd
 
+    ##Degree of Agreement
+    irow <- mtrain[i,]
+    isd <- sd(irow)
+    iDoa <- abs(isd-sdSet[i])
+    iMetrics["doa"] <- iDoa
+    
     ##Append to metrics matrix
     if (is.null(metrics)){
       metrics <- iMetrics
@@ -386,4 +400,116 @@ barplot(falseposrates,main="False Positive %\n(Undefended System)",ylim = c(yLow
       metrics <- rbind(metrics,iMetrics)
     }
   }
-metrics
+
+##Detect shilling attacker based on having low sd, and being high in other metrics
+detectedAttackers <- c()
+avgSd <- mean(metrics[,"stddev"])
+avgNpd <- mean(metrics[,"npd"])
+avgDoa <- mean(metrics[,"doa"])
+for (i in 1:nrow(metrics)){
+  if (metrics[i,"stddev"]>avgSd 
+      && metrics[i,"npd"]>avgNpd
+      && metrics[i,"doa"]>avgDoa){
+    detectedAttackers <- append(detectedAttackers,i)
+  }
+}
+
+##knn recommendation
+badsaMtrain <- mtrain[-detectedAttackers,]
+badsaMtrainLabels <- mtrainLabels[-detectedAttackers]
+
+prediction <- knn(train=badsaMtrain, test=mtest, cl=badsaMtrainLabels, k=neighbors, use.all = TRUE)
+efficiencyTable<-table(prediction,mtestLabels)
+falsePos<-efficiencyTable[2,1]
+falseNeg<-efficiencyTable[1,2]
+truePos<-efficiencyTable[1,1]
+trueNeg<-efficiencyTable[2,2]
+
+preRecEfficiency <- (truePos+trueNeg)/sum(efficiencyTable)
+normEff <- preRecEfficiency
+normVolume <- truePos+falsePos
+normfalsePos <- falsePos/sum(efficiencyTable)
+
+print(paste("knn Efficiency before attack WITH BADSA: ",preRecEfficiency))
+
+nms <- nrow(detectedAttackers)##Store num of non-malicious users
+################
+## Random Attack
+mDist <- table(mtrain)
+avgDist <- mDist[2]/sum(mDist) # % of sample rated 'like'
+
+attack <- .1 ##for changability
+attackSize <- attack*nrow(mtrain)
+
+injectedProfiles <- NULL
+for (i in 1:attackSize){
+  iProfile<- runif(attackSize)
+  iProfile[iProfile >= avgDist] <- 1
+  iProfile[iProfile < avgDist] <- 0
+  if (is.null(injectedProfiles))
+    injectedProfiles<- matrix(iProfile,nrow=1,ncol=(ncol(mxf)-1))
+  else
+    injectedProfiles<- rbind(injectedProfiles,iProfile)
+}    
+
+#Target User to Push
+pushRow <- (ncol(mxf))
+
+pushrateCol <- c(1:nrow(injectedProfiles))
+pushrateCol <- replace(pushrateCol, TRUE, 1)
+
+injectedProfiles <- cbind(injectedProfiles,pushrateCol)
+#Precalculate sd of ratings for each item
+sdSet <- c(1:ncol(mtrain))
+for (i in 1:ncol(mtrain)){
+  icol <-  mtrain[,i]
+  sdSet[i] <- sd(icol)
+}
+#1. Determine metrics for each user
+for (i in 1:nrow(mtrain)){
+  iMetrics <- c(1:3) ## Generic empty vector of 3 metrics
+  names(iMetrics) <- c("stddev","npd","doa") #Standard Deviation, Number of prediction differences, Degree of agreement, Average Similarity 
+  iRatings <- mtrain[i,]
+  
+  ##Standard deviation of ratings
+  iMetrics["stddev"] <- sd(iRatings)
+  
+  ##Number of prediction differences
+  predictionWithout <- knn(train=mtrain[-i,], test=mtest, cl=mtrainLabels[-i], k=neighbors, use.all = TRUE)
+  predictionWith <- prediction[-i]
+  iNpd <- 0
+  for (k in 1:length(predictionWith)){
+    if (predictionWithout[i]!=predictionWith[k]){
+      iNpd=iNpd+1;
+    }
+  }
+  iMetrics["npd"] <- iNpd
+  
+  ##Degree of Agreement
+  irow <- mtrain[i,]
+  isd <- sd(irow)
+  iDoa <- abs(isd-sdSet[i])
+  iMetrics["doa"] <- iDoa
+  
+  ##Append to metrics matrix
+  if (is.null(metrics)){
+    metrics <- iMetrics
+  }
+  else{
+    metrics <- rbind(metrics,iMetrics)
+  }
+}
+
+##Detect shilling attacker based on having low sd, and being high in other metrics
+detectedAttackers <- c()
+avgSd <- mean(metrics[,"stddev"])
+avgNpd <- mean(metrics[,"npd"])
+avgDoa <- mean(metrics[,"doa"])
+for (i in 1:nrow(metrics)){
+  if (metrics[i,"stddev"]>avgSd 
+      && metrics[i,"npd"]>avgNpd
+      && metrics[i,"doa"]>avgDoa){
+    detectedAttackers <- append(detectedAttackers,i)
+  }
+}
+
