@@ -343,7 +343,7 @@ barplot(effs, main="Reccomendation Efficiency Comparisons\n(Undefended System)",
 
 volumes <- c(normVolume,randVolume,avgVolume,segVolume)
 names(volumes) <- names(effs)
-barplot(volumes,main="Total Reccomendations Made\n(Undefended System)",xpd=FALSE)
+##barplot(volumes,main="Total Reccomendations Made\n(Undefended System)",xpd=FALSE)
 
 falseposrates <- c(normfalsePos,randfalsePos,avgfalsePos,segfalsePos)
 names(falseposrates) <- names(effs)
@@ -426,13 +426,14 @@ truePos<-efficiencyTable[1,1]
 trueNeg<-efficiencyTable[2,2]
 
 preRecEfficiency <- (truePos+trueNeg)/sum(efficiencyTable)
-normEff <- preRecEfficiency
-normVolume <- truePos+falsePos
-normfalsePos <- falsePos/sum(efficiencyTable)
+badsaNormEff <- preRecEfficiency
+badsaNormVolume <- truePos+falsePos
+badsaNormfalsePos <- falsePos/sum(efficiencyTable)
 
 print(paste("knn Efficiency before attack WITH BADSA: ",preRecEfficiency))
 
 badsaNoAtkCount <- length(detectedAttackers)##Store num of non-malicious users
+
 ################
 ## Random Attack
 mDist <- table(mtrain)
@@ -533,8 +534,263 @@ postRecEfficiency <- (patruePos+patrueNeg)/sum(paefficiencyTable)
 print(paste("knn Efficiency after RANDOM ATTACK WITH BADSA: ",postRecEfficiency))
 print(paste("False Positives: ",pafalsePos,". Versus: ",falsePos))
 
-randEff <- postRecEfficiency
-randVolume <- patruePos+pafalsePos
-randfalsePos <- pafalsePos/sum(paefficiencyTable)
+badsaRandEff <- postRecEfficiency
+badsaRandVolume <- patruePos+pafalsePos
+badsaRandfalsePos <- pafalsePos/sum(paefficiencyTable)
 
 badsaRatkCount <- length(detectedAttackers)
+
+########################################
+#----Average attack----#
+attack <- .15 ##for changability
+attackSize <- attack*nrow(mtrain)
+
+injectedProfiles <- NULL
+for (i in 1:attackSize){
+  mDist <- table(mtrain[,i])
+  avgDist <- mDist[2]/sum(mDist) # % of sample rated 'like' for female i
+  
+  iProfile<- runif(attackSize)
+  iProfile[iProfile >= avgDist] <- 1
+  iProfile[iProfile < avgDist] <- 0
+  if (is.null(injectedProfiles))
+    injectedProfiles<- matrix(iProfile,nrow=1,ncol=(ncol(mxf)-1))
+  else
+    injectedProfiles<- rbind(injectedProfiles,iProfile)
+}    
+
+#Target User to Push
+pushRow <- (ncol(mxf))
+
+pushrateCol <- c(1:nrow(injectedProfiles))
+pushrateCol <- replace(pushrateCol, TRUE, 1)
+
+injectedProfiles <- cbind(injectedProfiles,pushrateCol)
+
+##RA Train set, test labels
+paamTrain <- rbind(mtrain,injectedProfiles)
+paamtrainLabels <- paamTrain[,pushRow] 
+paamtestLabels <- mxf[samp==2, (ncol(mxf))]
+
+####BADSA DEFENSE
+#Precalculate sd of ratings for each item
+sdSet <- c(1:ncol(paamTrain))
+for (i in 1:ncol(paamTrain)){
+  icol <-  paamTrain[,i]
+  sdSet[i] <- sd(icol)
+}
+#1. Determine metrics for each user
+for (i in 1:nrow(paamTrain)){
+  iMetrics <- c(1:3) ## Generic empty vector of 3 metrics
+  names(iMetrics) <- c("stddev","npd","doa") #Standard Deviation, Number of prediction differences, Degree of agreement, Average Similarity 
+  iRatings <- paamTrain[i,]
+  
+  ##Standard deviation of ratings
+  iMetrics["stddev"] <- sd(iRatings)
+  
+  ##Number of prediction differences
+  predictionWithout <- knn(train=paamTrain[-i,], test=mtest, cl=paamtrainLabels[-i], k=neighbors, use.all = TRUE)
+  predictionWith <- prediction[-i]
+  iNpd <- 0
+  for (k in 1:length(predictionWith)){
+    if (predictionWithout[i]!=predictionWith[k]){
+      iNpd=iNpd+1;
+    }
+  }
+  iMetrics["npd"] <- iNpd
+  
+  ##Degree of Agreement
+  irow <- mtrain[i,]
+  isd <- sd(irow)
+  iDoa <- abs(isd-sdSet[i])
+  iMetrics["doa"] <- iDoa
+  
+  ##Append to metrics matrix
+  if (is.null(metrics)){
+    metrics <- iMetrics
+  }
+  else{
+    metrics <- rbind(metrics,iMetrics)
+  }
+}
+##Detect shilling attacker based on having low sd, and being high in other metrics
+detectedAttackers <- c()
+avgSd <- mean(metrics[,"stddev"])
+avgNpd <- mean(metrics[,"npd"])
+avgDoa <- mean(metrics[,"doa"])
+for (i in 1:nrow(metrics)){
+  if (metrics[i,"stddev"]>avgSd 
+      && metrics[i,"npd"]>avgNpd
+      && metrics[i,"doa"]>avgDoa){
+    detectedAttackers <- append(detectedAttackers,i)
+  }
+}
+#Create post average-attack knn reccomendation model
+
+paaPrediction <- knn(train=paamTrain, test=mtest, cl=paamtrainLabels, k=neighbors, use.all = TRUE)
+paaefficiencyTable<-table(paaPrediction,paamtestLabels)
+paafalsePos<-paaefficiencyTable[2,1]
+paafalseNeg<-paaefficiencyTable[1,2]
+paatruePos<-paaefficiencyTable[1,1]
+paatrueNeg<-paaefficiencyTable[2,2]
+postAvgRecEfficiency <- (paatruePos+paatrueNeg)/sum(paaefficiencyTable)
+print(paste("knn Efficiency after AVERAGE ATTACK WITH BADSA: ",postAvgRecEfficiency))
+print(paste("False Positives: ",paafalsePos,". Versus: ",paafalsePos))
+
+badsaAvgEff <- postAvgRecEfficiency
+badsaAvgVolume <- paatruePos+paafalsePos
+badsaAvgfalsePos <- paafalsePos/sum(paaefficiencyTable)
+
+###################################
+#----Segment Attack----#
+nummeans <- 4
+kmmxf <- kmeans(mxf,centers=nummeans) ## "There are only two kinds of men" - Blaine Pascal
+tarCluster <- 0 
+tarTotal <- 0
+for (i in 1:nummeans){
+  iClusAtUser <- kmmxf$cluster[kmmxf$cluster == i]
+  colToCheck <- mxf[,ncol(mxf)]
+  
+  total <- sum(colToCheck[colToCheck==i])
+  print(paste("Bias at cluster ",i,"= ",total))
+  if (total>tarTotal){
+    tarCluster <- i
+    tarTotal <- sum(colToCheck[colToCheck==i])
+  }
+  ##find mean with bias toward female at column index ncol(mxf)
+  ##In a real life example, segement attacks are more intuitive than this
+  ##Ex: People who play farmville also probably likely to play Clash of clans
+}
+
+#Get all nonmalicious users in target cluster
+clusiMxf <- mxf[names(kmmxf$cluster[kmmxf$cluster == tarCluster]), ]
+
+#Construct set of mal. Users based on average ratings of target segment only
+attack <- .15 ##for changability
+attackSize <- attack*nrow(mtrain)
+
+injectedProfiles <- NULL
+for (i in 1:attackSize){
+  mDist <- table(clusiMxf[,i])
+  avgDist <- mDist[2]/sum(mDist) # % of sample rated 'like' for female i
+  
+  iProfile<- runif(attackSize)
+  iProfile[iProfile >= avgDist] <- 1
+  iProfile[iProfile < avgDist] <- 0
+  
+  if (is.null(injectedProfiles))
+    injectedProfiles<- matrix(iProfile,nrow=1,ncol=(ncol(mxf)-1))
+  else
+    injectedProfiles<- rbind(injectedProfiles,iProfile)
+}    
+
+#Target User to Push
+pushRow <- (ncol(mxf))
+
+pushrateCol <- c(1:nrow(injectedProfiles))
+pushrateCol <- replace(pushrateCol, TRUE, 1)
+
+injectedProfiles <- cbind(injectedProfiles,pushrateCol)
+
+##RA Train set, test labels
+psamTrain <- rbind(mtrain,injectedProfiles)
+psamtrainLabels <- psamTrain[,pushRow] 
+psamtestLabels <- mxf[samp==2, (ncol(mxf))]
+
+####BADSA DEFENSE
+#Precalculate sd of ratings for each item
+sdSet <- c(1:ncol(paamTrain))
+for (i in 1:ncol(paamTrain)){
+  icol <-  psamTrain[,i]
+  sdSet[i] <- sd(icol)
+}
+#1. Determine metrics for each user
+for (i in 1:nrow(psamTrain)){
+  iMetrics <- c(1:3) ## Generic empty vector of 3 metrics
+  names(iMetrics) <- c("stddev","npd","doa") #Standard Deviation, Number of prediction differences, Degree of agreement, Average Similarity 
+  iRatings <- psamTrain[i,]
+  
+  ##Standard deviation of ratings
+  iMetrics["stddev"] <- sd(iRatings)
+  
+  ##Number of prediction differences
+  predictionWithout <- knn(train=psamTrain[-i,], test=mtest, cl=psamtrainLabels[-i], k=neighbors, use.all = TRUE)
+  predictionWith <- prediction[-i]
+  iNpd <- 0
+  for (k in 1:length(predictionWith)){
+    if (predictionWithout[i]!=predictionWith[k]){
+      iNpd=iNpd+1;
+    }
+  }
+  iMetrics["npd"] <- iNpd
+  
+  ##Degree of Agreement
+  irow <- mtrain[i,]
+  isd <- sd(irow)
+  iDoa <- abs(isd-sdSet[i])
+  iMetrics["doa"] <- iDoa
+  
+  ##Append to metrics matrix
+  if (is.null(metrics)){
+    metrics <- iMetrics
+  }
+  else{
+    metrics <- rbind(metrics,iMetrics)
+  }
+}
+##Detect shilling attacker based on having low sd, and being high in other metrics
+detectedAttackers <- c()
+avgSd <- mean(metrics[,"stddev"])
+avgNpd <- mean(metrics[,"npd"])
+avgDoa <- mean(metrics[,"doa"])
+for (i in 1:nrow(metrics)){
+  if (metrics[i,"stddev"]>avgSd 
+      && metrics[i,"npd"]>avgNpd
+      && metrics[i,"doa"]>avgDoa){
+    detectedAttackers <- append(detectedAttackers,i)
+  }
+}
+#Create post average-attack knn reccomendation model
+
+psaPrediction <- knn(train=psamTrain, test=mtest, cl=psamtrainLabels, k=neighbors, use.all = TRUE)
+psaefficiencyTable<-table(psaPrediction,psamtestLabels)
+psafalsePos<-psaefficiencyTable[2,1]
+psafalseNeg<-psaefficiencyTable[1,2]
+psatruePos<-psaefficiencyTable[1,1]
+psatrueNeg<-psaefficiencyTable[2,2]
+postSegRecEfficiency <- (psatruePos+psatrueNeg)/sum(psaefficiencyTable)
+print(paste("knn Efficiency after AVERAGE ATTACK WITH BADSA: ",postSegRecEfficiency))
+print(paste("False Positives: ",psafalsePos,". Versus: ",psafalsePos))
+
+badsaSegEff <- postSegRecEfficiency
+badsaSegVolume <- psatruePos+psafalsePos
+badsaSegfalsePos <- psafalsePos/sum(psaefficiencyTable)
+
+## Chart results
+gColors <- c("grey","red",
+             "grey","red",
+             "grey","red",
+             "grey","red")
+effs <- c(normEff,badsaNormEff,
+          randEff,badsaRandEff,
+          avgEff,badsaAvgEff,
+          segEff,badsaSegEff)
+names(effs) <- c("No\nAttack","No\nAttack\nW/BADSA",
+                 "Random\nAttack","Random\nAttack\nW/ BADSA",
+                 "Average\nAttack","Average\nAttack\nW/ BADSA",
+                 "Segment\nAttack","Segment\nAttack\nW/ BADSA"
+                 )
+yUpBounds <- ceiling(mean(effs)*10)/10
+yLowBounds <- (floor(mean(effs)*10)/10)-.1
+barplot(effs, main="Reccomendation Efficiency Comparisons\n(Undefended System)",col=gColors,ylim = c(yLowBounds,yUpBounds), xpd=FALSE)
+
+falseposrates <- c(normfalsePos,badsaNormfalsePos,
+                   randfalsePos,badsaRandfalsePos,
+                   avgfalsePos,badsaAvgfalsePos,
+                   segfalsePos,badsaSegfalsePos)
+names(falseposrates) <- names(effs)
+yLowBounds <- (floor(mean(falseposrates)*10)/10)-.1
+yUpBounds <- ceiling(mean(falseposrates)*10)/10
+barplot(falseposrates,main="False Positive %\n(Undefended System)",col=gColors,ylim = c(yLowBounds,yUpBounds),xpd=FALSE)
+
+############################################################################
