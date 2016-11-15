@@ -6,20 +6,23 @@
 #17,359,346 Ratings by 168,791 Users dumped on April 4,2006
 
 ## Working Directory ##
-#setwd("C:/Users/Cameron/Documents/Fall2016/RCF Study/libimseti")
+#*Please note that the working dir should be your local copy of libimseti
 setwd("C:/Users/Cameron/Documents/Fall2016CCSU/rcfstudy-master/libimseti")
 
 ## Packages ##
 
-##Desktop
+##Lib imports
+#*These, also, may be OS specific.
   library("class", lib.loc="C:/Program Files/R/R-3.3.1/library")
   library("grid", lib.loc="C:/Program Files/R/R-3.3.1/library")
   library("graphics", lib.loc="C:/Program Files/R/R-3.3.1/library")
   library("cluster", lib.loc="C:/Program Files/R/R-3.3.1/library")
   library("fpc", lib.loc="C:/Program Files/R/R-3.3.1/library")
-##Laptop
-
+##Constants
+#*Can be modified to yield differing knn efficiencies
+#* neighbors = 'k' in knn, itemsToStudy = number of columns (females)
 neighbors <- 3  
+itemsToStudy <- 50
 
 set.seed(100)
 
@@ -63,7 +66,7 @@ f <- unique(fRatings$ID)
 mxf <- NULL
 
 #For testing, reduce size of f to low num. females
-f <- f[1:50]
+f <- f[1:itemsToStudy]
 
 write.table(m,file="mUnique.dat",sep=",")
 write.table(f,file="fUnique.dat",sep=",")
@@ -782,7 +785,7 @@ names(effs) <- c("No\nAttack","No\nAttack\nW/BADSA",
                  )
 yUpBounds <- ceiling(mean(effs)*10)/10
 yLowBounds <- (floor(mean(effs)*10)/10)-.1
-barplot(effs, main="Reccomendation Efficiency Comparisons\n(Undefended System)",col=gColors,ylim = c(yLowBounds,yUpBounds), xpd=FALSE)
+barplot(effs, main="Reccomendation Efficiency Comparisons\n(BADSA)",col=gColors,ylim = c(yLowBounds,yUpBounds), xpd=FALSE)
 
 falseposrates <- c(normfalsePos,badsaNormfalsePos,
                    randfalsePos,badsaRandfalsePos,
@@ -791,6 +794,6 @@ falseposrates <- c(normfalsePos,badsaNormfalsePos,
 names(falseposrates) <- names(effs)
 yLowBounds <- (floor(mean(falseposrates)*10)/10)-.1
 yUpBounds <- ceiling(mean(falseposrates)*10)/10
-barplot(falseposrates,main="False Positive %\n(Undefended System)",col=gColors,ylim = c(yLowBounds,yUpBounds),xpd=FALSE)
+barplot(falseposrates,main="False Positive %\n(BADSA)",col=gColors,ylim = c(yLowBounds,yUpBounds),xpd=FALSE)
 
 ############################################################################
